@@ -665,8 +665,10 @@
     if (rows.length === 0) return null;
 
     const cols = { checkNumber: -1, payee: -1, amount: -1, date: -1 };
-    // Sample first few rows (skip first which might be header)
-    const sampleRows = Array.from(rows).slice(1, Math.min(6, rows.length));
+    // Sample first few rows
+    // For div-based (findCheckRows), all rows are data — no header to skip
+    // For HTML tables, first row might be header but we still detect patterns
+    const sampleRows = Array.from(rows).slice(0, Math.min(5, rows.length));
 
     for (const row of sampleRows) {
       // Get cells: try td first, then direct children (for divs)
@@ -677,8 +679,8 @@
 
       cells.forEach((cell, i) => {
         const text = cell.textContent.trim();
-        // Check number: pure digits, 3-10 digits
-        if (cols.checkNumber === -1 && /^\d{3,10}$/.test(text)) {
+        // Check number: digits with optional # prefix, 3-10 digits
+        if (cols.checkNumber === -1 && /^\#?\d{3,10}$/.test(text)) {
           cols.checkNumber = i;
         }
         // Amount: has $ or looks like money
