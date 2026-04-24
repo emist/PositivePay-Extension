@@ -1037,7 +1037,16 @@
 
     if (msg.type === 'PPAY_GET_STATUS') {
       // Re-detect ledger fresh (user may have switched ledgers in this SPA)
+      const previousLedger = state.detectedLedger;
+      const activeBizEl = document.querySelector('.active-business');
+      const rawActiveBizText = activeBizEl ? activeBizEl.textContent.trim() : '(no .active-business found)';
+      console.log(`${LOG_PREFIX} 🔄 Re-detecting ledger... (was: "${previousLedger}")`);
+      console.log(`${LOG_PREFIX} 🔄 Current .active-business text: "${rawActiveBizText}"`);
       detectLedger();
+      console.log(`${LOG_PREFIX} 🔄 Fresh detection result: "${state.detectedLedger}"`);
+      if (previousLedger !== state.detectedLedger) {
+        console.log(`${LOG_PREFIX} ✅ Ledger CHANGED: "${previousLedger}" → "${state.detectedLedger}"`);
+      }
       const status = {
         onCheckeeper: true,
         selectedCount: state.selectedChecks.size,
