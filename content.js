@@ -1053,9 +1053,35 @@
       return false;
     }
 
-    // Log the table structure for debugging
+    // Comprehensive structure dump for debugging
+    console.log(`${LOG_PREFIX} 📊 TABLE STRUCTURE DUMP:`);
+    console.log(`${LOG_PREFIX}   Tag: ${table.tagName}, Class: "${table.className}"`);
+    console.log(`${LOG_PREFIX}   Direct children: ${table.children.length}`);
+    Array.from(table.children).forEach((child, i) => {
+      const childText = child.textContent.trim().substring(0, 100);
+      const hasAmount = /\$[\d,]+/.test(child.textContent);
+      console.log(`${LOG_PREFIX}   child[${i}]: <${child.tagName}.${child.className.toString().substring(0, 30)}> children=${child.children.length} $=${hasAmount} text="${childText}"`);
+      // Show grandchildren too
+      Array.from(child.children).slice(0, 3).forEach((gc, j) => {
+        const gcText = gc.textContent.trim().substring(0, 80);
+        const gcHas$ = /\$[\d,]+/.test(gc.textContent);
+        console.log(`${LOG_PREFIX}     gc[${i}.${j}]: <${gc.tagName}.${gc.className.toString().substring(0, 30)}> children=${gc.children.length} $=${gcHas$} text="${gcText}"`);
+      });
+    });
+
+    // Log findCheckRows result
+    const isHtmlTable = table.tagName === 'TABLE';
+    if (!isHtmlTable) {
+      const checkRows = findCheckRows(table);
+      console.log(`${LOG_PREFIX}   findCheckRows returned: ${checkRows.length} rows`);
+      checkRows.slice(0, 3).forEach((r, i) => {
+        console.log(`${LOG_PREFIX}     row[${i}]: <${r.tagName}.${r.className.toString().substring(0, 30)}> children=${r.children.length} text="${r.textContent.trim().substring(0, 80)}"`);
+      });
+    }
+
+    // Log the table structure for debugging (standard table)
     const rows = table.querySelectorAll('tbody tr, tr');
-    console.log(`${LOG_PREFIX} ✅ Table found with ${rows.length} rows`);
+    console.log(`${LOG_PREFIX} ✅ Table found with ${rows.length} HTML rows`);
     if (rows.length > 0) {
       const firstRow = rows[0];
       const cells = Array.from(firstRow.querySelectorAll('td'));
