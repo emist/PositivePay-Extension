@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PositivePay for CheckKeeper</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header -->
+    <div class="popup-header">
+      <div class="popup-logo">
+        <svg viewBox="0 0 32 32" fill="none" class="popup-logo-icon">
+          <rect x="2" y="6" width="28" height="20" rx="3" stroke="currentColor" stroke-width="2"/>
+          <path d="M2 12h28" stroke="currentColor" stroke-width="2"/>
+          <path d="M12 20l3 3 6-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="popup-title-group">
+        <h1 class="popup-title">PositivePay</h1>
+        <span class="popup-subtitle">CheckKeeper → First Citizens</span>
+      </div>
+    </div>
+
+    <!-- Status -->
+    <div class="popup-section" id="status-section">
+      <div class="status-row">
+        <span class="status-dot" id="status-dot"></span>
+        <span class="status-text" id="status-text">Checking…</span>
+      </div>
+      <div class="status-detail" id="status-detail"></div>
+    </div>
+
+    <!-- Export (only shown when connected with selections) -->
+    <div class="popup-section" id="export-section" style="display:none;">
+      <button id="export-btn" class="popup-btn-export" disabled>
+        <svg class="popup-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        <span id="export-btn-text">Export Positive Pay CSV</span>
+      </button>
+    </div>
+
+    <!-- Accounts Manager (always visible) -->
+    <div class="popup-section">
+      <label class="popup-label">Ledger Accounts</label>
+
+      <!-- Add new account form -->
+      <div class="add-account-form">
+        <input type="text" id="ledger-input" class="popup-input" placeholder="Ledger name" autocomplete="off" />
+        <input type="text" id="account-input" class="popup-input popup-input-mono" placeholder="Account number" autocomplete="off" />
+        <button id="add-account-btn" class="popup-btn-add" title="Add account">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <path d="M8 3v10M3 8h10" stroke-linecap="round"/>
+          </svg>
+          <span>Add</span>
+        </button>
+      </div>
+      <div class="account-status" id="account-status"></div>
+
+      <!-- Saved accounts list -->
+      <div class="accounts-panel" id="accounts-panel">
+        <div class="accounts-list" id="accounts-list">
+          <div class="accounts-empty">No accounts saved yet</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="popup-footer">
+      <span class="popup-footer-text">v1.0 · First Citizens Positive Pay</span>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

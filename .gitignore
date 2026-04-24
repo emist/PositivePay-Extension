@@ -1,0 +1,19 @@
+# Environment / secrets
+.env
+.env.local
+credentials.json
+token.json
+
+# Temp / intermediate files
+.tmp/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE / editor
+.vscode/
+.idea/
+
+# Node (if any tooling is added)
+node_modules/
