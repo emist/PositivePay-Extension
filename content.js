@@ -92,8 +92,9 @@
 
   /**
    * Extract just the business name from text that may include a tagline.
-   * E.g. "Cornish Hernandez Gonzalez, PLLC We Help The Hurt" → "Cornish Hernandez Gonzalez, PLLC"
-   * But keeps qualifiers: "PLLC Trust" → "PLLC Trust" (1-3 words after suffix = qualifier)
+   * E.g. "Cornish Hernandez Gonzalez, PLLC We Help The Hurt" → "...PLLC"
+   * But keeps qualifiers: "PLLC Trust" → "PLLC Trust" (1-3 words = qualifier)
+   * Uses indexOf instead of regex to avoid template-literal escaping issues.
    */
   function extractBusinessName(raw) {
     if (!raw) return '';
@@ -110,13 +111,26 @@
       'P.C.', 'P.C',
     ];
 
+    // Find the LAST (rightmost) suffix occurrence using indexOf
+    const textLower = text.toLowerCase();
     let bestEnd = -1;
     for (const suffix of suffixes) {
-      const pattern = new RegExp(`\\b${suffix.replace(/\./g, '\\.')}\\b\\.?`, 'gi');
-      let m;
-      while ((m = pattern.exec(text)) !== null) {
-        const end = m.index + m[0].length;
-        if (end > bestEnd) bestEnd = end;
+      const suffixLower = suffix.toLowerCase();
+      let searchFrom = 0;
+      while (true) {
+        const idx = textLower.indexOf(suffixLower, searchFrom);
+        if (idx === -1) break;
+        // Verify whole-word match
+        const before = idx > 0 ? text[idx - 1] : ' ';
+        const afterChar = text[idx + suffix.length] || ' ';
+        const isWordBefore = /[\s,]/.test(before) || idx === 0;
+        const isWordAfter = /[\s,.]/.test(afterChar) || (idx + suffix.length) === text.length;
+        if (isWordBefore && isWordAfter) {
+          let end = idx + suffix.length;
+          if (text[end] === '.') end++;
+          if (end > bestEnd) bestEnd = end;
+        }
+        searchFrom = idx + 1;
       }
     }
 
@@ -323,9 +337,8 @@
     // Special high-priority: .active-business element (CheckKeeper-specific)
     const activeBiz = document.querySelector('.active-business');
     if (activeBiz) {
-      // Try first child element (business name may be separate from tagline)
-      const firstChild = activeBiz.querySelector('span, strong, b, div, p, a');
-      const rawText = firstChild ? firstChild.textContent.trim() : activeBiz.textContent.trim();
+      // Use full textContent — qualifiers like "Trust" may be in child spans
+      const rawText = activeBiz.textContent.trim();
       const extracted = extractBusinessName(rawText);
       if (extracted && scoreLedgerCandidate(extracted) > 0) {
         console.log(`${LOG_PREFIX} ✅ Detected ledger from .active-business: "${extracted}" (raw: "${rawText}")`);

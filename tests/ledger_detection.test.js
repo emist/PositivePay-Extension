@@ -25,14 +25,17 @@ function normalizeLedgerName(raw) {
 /**
  * Extract just the business name from a string that may include a tagline.
  * E.g. "Cornish Hernandez Gonzalez, PLLC We Help The Hurt" → "Cornish Hernandez Gonzalez, PLLC"
- * Strategy: If a legal suffix (LLC, PLLC, Inc, etc.) is found, truncate after it.
+ * But keeps qualifiers: "PLLC Trust" stays as-is (1-3 words after suffix = qualifier)
+ *
+ * Uses indexOf-based matching (no regex word boundaries) to avoid
+ * template-literal escaping issues.
  */
 function extractBusinessName(raw) {
   if (!raw) return '';
   const text = normalizeLedgerName(raw);
   if (!text) return '';
 
-  // Legal suffixes to look for (case-insensitive, whole-word match)
+  // Legal suffixes to look for (case-insensitive)
   const suffixes = [
     'PLLC', 'P.L.L.C.', 'P.A.', 'P.A',
     'LLC', 'L.L.C.', 'L.L.C',
@@ -43,30 +46,40 @@ function extractBusinessName(raw) {
     'P.C.', 'P.C',
   ];
 
-  // Find the LAST (rightmost) suffix occurrence
+  // Find the LAST (rightmost) suffix occurrence using indexOf
+  const textLower = text.toLowerCase();
   let bestEnd = -1;
   for (const suffix of suffixes) {
-    const pattern = new RegExp(`\\b${suffix.replace(/\./g, '\\.')}\\b\\.?`, 'gi');
-    let m;
-    while ((m = pattern.exec(text)) !== null) {
-      const end = m.index + m[0].length;
-      if (end > bestEnd) bestEnd = end;
+    const suffixLower = suffix.toLowerCase();
+    let searchFrom = 0;
+    while (true) {
+      const idx = textLower.indexOf(suffixLower, searchFrom);
+      if (idx === -1) break;
+      // Verify whole-word match
+      const before = idx > 0 ? text[idx - 1] : ' ';
+      const afterChar = text[idx + suffix.length] || ' ';
+      const isWordBefore = /[\s,]/.test(before) || idx === 0;
+      const isWordAfter = /[\s,.]/.test(afterChar) || (idx + suffix.length) === text.length;
+      if (isWordBefore && isWordAfter) {
+        let end = idx + suffix.length;
+        // Include trailing period if present
+        if (text[end] === '.') end++;
+        if (end > bestEnd) bestEnd = end;
+      }
+      searchFrom = idx + 1;
     }
   }
 
-  // If we found a suffix and there's content after it, decide:
-  //   - 1–3 words after = qualifier (Trust, OLD TRUST, Operating) → KEEP
-  //   - 4+ words after  = tagline (We Help The Hurt) → STRIP
+  // Decide: 1-3 words after suffix = qualifier (Trust, OLD TRUST) -> KEEP
+  //         4+ words after suffix  = tagline (We Help The Hurt) -> STRIP
   if (bestEnd > 0 && bestEnd < text.length) {
     const afterSuffix = text.substring(bestEnd).trim();
     if (afterSuffix.length > 0) {
       const wordCount = afterSuffix.split(/\s+/).length;
       if (wordCount >= 4) {
-        // Looks like a tagline — strip it
         const extracted = text.substring(0, bestEnd).trim();
         if (extracted.length >= 3) return extracted;
       }
-      // 1–3 words = qualifier, keep the full text
     }
   }
 
@@ -214,10 +227,9 @@ describe('extractBusinessName', () => {
   });
 
   it('should strip when qualifier + tagline combined exceed threshold', () => {
-    // "Trust We Help The Hurt" = 5 words after PLLC → stripped
-    // In practice, the content script uses the .active-business first child element
-    // which separates "Trust" from "We Help The Hurt", so this edge case
-    // doesn't occur in real CheckKeeper pages.
+    // "Trust We Help The Hurt" = 5 words after PLLC -> stripped
+    // In practice, the content script uses .active-business textContent
+    // which may not combine qualifier + tagline in the same text node.
     assert.equal(
       extractBusinessName('Cornish Hernandez Gonzalez, PLLC Trust We Help The Hurt'),
       'Cornish Hernandez Gonzalez, PLLC'
