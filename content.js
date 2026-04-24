@@ -93,6 +93,7 @@
   /**
    * Extract just the business name from text that may include a tagline.
    * E.g. "Cornish Hernandez Gonzalez, PLLC We Help The Hurt" → "Cornish Hernandez Gonzalez, PLLC"
+   * But keeps qualifiers: "PLLC Trust" → "PLLC Trust" (1-3 words after suffix = qualifier)
    */
   function extractBusinessName(raw) {
     if (!raw) return '';
@@ -119,11 +120,16 @@
       }
     }
 
+    // Decide: 1-3 words after suffix = qualifier (Trust, OLD TRUST) → keep
+    //         4+ words after suffix  = tagline (We Help The Hurt) → strip
     if (bestEnd > 0 && bestEnd < text.length) {
       const afterSuffix = text.substring(bestEnd).trim();
       if (afterSuffix.length > 0) {
-        const extracted = text.substring(0, bestEnd).trim();
-        if (extracted.length >= 3) return extracted;
+        const wordCount = afterSuffix.split(/\s+/).length;
+        if (wordCount >= 4) {
+          const extracted = text.substring(0, bestEnd).trim();
+          if (extracted.length >= 3) return extracted;
+        }
       }
     }
 
