@@ -867,21 +867,56 @@
           dataCells = Array.from(row.children).filter(c => !c.classList.contains('ppay-td-toggle'));
         }
 
-        if (toggle.classList.contains('ppay-selected')) {
+         if (toggle.classList.contains('ppay-selected')) {
           // Deselect
           toggle.classList.remove('ppay-selected');
           row.classList.remove('ppay-row-selected');
           state.selectedChecks.delete(rowId);
         } else {
-          // Select
+          // Select — extract check data from the row
           toggle.classList.add('ppay-selected');
           row.classList.add('ppay-row-selected');
-          state.selectedChecks.set(rowId, {
-            checkNumber: cols.checkNumber >= 0 ? dataCells[cols.checkNumber]?.textContent.trim() : '',
-            payee: cols.payee >= 0 ? dataCells[cols.payee]?.textContent.trim() : '',
-            amount: cols.amount >= 0 ? dataCells[cols.amount]?.textContent.trim() : '',
-            date: cols.date >= 0 ? dataCells[cols.date]?.textContent.trim() : '',
-          });
+
+          // Try column-index extraction first; fall back to pattern-based
+          let checkNumber = cols.checkNumber >= 0 ? dataCells[cols.checkNumber]?.textContent.trim() : '';
+          let payee = cols.payee >= 0 ? dataCells[cols.payee]?.textContent.trim() : '';
+          let amount = cols.amount >= 0 ? dataCells[cols.amount]?.textContent.trim() : '';
+          let date = cols.date >= 0 ? dataCells[cols.date]?.textContent.trim() : '';
+
+          // Pattern-based fallback for missing fields
+          const rowText = row.textContent;
+
+          if (!checkNumber) {
+            // Look for #NNNNN or standalone 3-10 digit numbers
+            const numMatch = rowText.match(/#(\d{3,10})/);
+            if (numMatch) checkNumber = numMatch[1];
+          }
+          if (!amount) {
+            // Look for $X,XXX.XX pattern
+            const amtMatch = rowText.match(/\$[\d,]+\.\d{2}/);
+            if (amtMatch) amount = amtMatch[0];
+          }
+          if (!date) {
+            // Look for MM/DD/YYYY or MM-DD-YYYY
+            const dateMatch = rowText.match(/\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/);
+            if (dateMatch) date = dateMatch[0];
+          }
+          if (!payee) {
+            // Use the first link text in the row as payee (CheckKeeper links payee names)
+            const payeeLink = row.querySelector('a');
+            if (payeeLink) {
+              payee = payeeLink.textContent.trim();
+            } else {
+              // Fall back to longest text segment
+              const texts = Array.from(row.querySelectorAll('*')).map(el => el.textContent.trim())
+                .filter(t => t.length > 3 && !/^\$/.test(t) && !/^\d+$/.test(t) && !/^\d{1,2}\//.test(t));
+              if (texts.length > 0) payee = texts.reduce((a, b) => a.length > b.length ? a : b);
+            }
+          }
+
+          console.log(`${LOG_PREFIX} Selected row ${idx}: #${checkNumber} | ${payee} | ${amount} | ${date}`);
+
+          state.selectedChecks.set(rowId, { checkNumber, payee, amount, date });
         }
         updateFloatingButton();
       });
