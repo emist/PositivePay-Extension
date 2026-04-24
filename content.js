@@ -712,48 +712,68 @@
   }
 
   /* ─── Inject checkboxes into table rows ─── */
+  /**
+   * SVG icons for toggle pills (inline to avoid external dependencies)
+   */
+  const PPAY_ICON_SHIELD = `<svg class="ppay-toggle-icon ppay-toggle-shield" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.5l5.5 2v4.5c0 3.5-2.5 5.5-5.5 7-3-1.5-5.5-3.5-5.5-7V3.5L8 1.5z" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const PPAY_ICON_CHECK = `<svg class="ppay-toggle-icon ppay-toggle-check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8.5l3 3 5-6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
   function injectCheckboxes(table, cols) {
     const isHtmlTable = table.tagName === 'TABLE';
 
-    // Add checkbox header
+    // Add "Select All" toggle in a header area
     let headerRow;
     if (isHtmlTable) {
       headerRow = table.querySelector('thead tr, tr:first-child');
     } else {
-      headerRow = table.children[0]; // First child = header row for div-based
+      headerRow = table.children[0];
     }
 
-    if (headerRow && !headerRow.querySelector('.ppay-th-checkbox')) {
+    if (headerRow && !headerRow.querySelector('.ppay-th-toggle')) {
       const th = document.createElement(isHtmlTable ? 'th' : 'div');
-      th.className = 'ppay-th-checkbox';
-      th.innerHTML = `
-        <label class="ppay-checkbox-wrap ppay-select-all" title="Select all">
-          <input type="checkbox" class="ppay-checkbox ppay-checkbox-all" />
-          <span class="ppay-checkmark"></span>
-        </label>`;
-      headerRow.insertBefore(th, headerRow.firstChild);
+      th.className = 'ppay-th-toggle';
+      const toggle = document.createElement('span');
+      toggle.className = 'ppay-toggle ppay-select-all';
+      toggle.setAttribute('role', 'button');
+      toggle.setAttribute('tabindex', '0');
+      toggle.setAttribute('title', 'Select all for Positive Pay export');
+      toggle.innerHTML = `${PPAY_ICON_SHIELD}${PPAY_ICON_CHECK}<span>ALL</span>`;
+      th.appendChild(toggle);
+      headerRow.appendChild(th);
 
       // Select-all handler
-      th.querySelector('.ppay-checkbox-all').addEventListener('change', (e) => {
-        const checked = e.target.checked;
-        table.querySelectorAll('.ppay-row-checkbox').forEach(cb => {
-          cb.checked = checked;
-          cb.dispatchEvent(new Event('change', { bubbles: true }));
-        });
+      toggle.addEventListener('click', () => {
+        const isSelected = toggle.classList.contains('ppay-selected');
+        if (isSelected) {
+          // Deselect all
+          toggle.classList.remove('ppay-selected');
+          table.querySelectorAll('.ppay-toggle[data-ppay-row]').forEach(t => {
+            if (t.classList.contains('ppay-selected')) {
+              t.click();
+            }
+          });
+        } else {
+          // Select all
+          toggle.classList.add('ppay-selected');
+          table.querySelectorAll('.ppay-toggle[data-ppay-row]').forEach(t => {
+            if (!t.classList.contains('ppay-selected')) {
+              t.click();
+            }
+          });
+        }
       });
     }
 
-    // Add checkboxes to each data row
+    // Add toggle pills to each data row
     let rows;
     if (isHtmlTable) {
       rows = table.querySelectorAll('tbody tr, tr:not(:first-child)');
     } else {
-      // For div-based: all children except the first (header)
       rows = Array.from(table.children).slice(1);
     }
 
     Array.from(rows).forEach((row, idx) => {
-      if (row.querySelector('.ppay-td-checkbox')) return; // Already injected
+      if (row.querySelector('.ppay-td-toggle')) return; // Already injected
 
       // Get cells: try td, then direct children
       let cells = Array.from(row.querySelectorAll('td'));
@@ -763,24 +783,37 @@
       if (cells.length < 2) return; // Skip empty/sparse rows
 
       const td = document.createElement(isHtmlTable ? 'td' : 'div');
-      td.className = 'ppay-td-checkbox';
-      const rowId = `ppay-row-${idx}`;
-      td.innerHTML = `
-        <label class="ppay-checkbox-wrap">
-          <input type="checkbox" class="ppay-row-checkbox" data-ppay-row="${rowId}" />
-          <span class="ppay-checkmark"></span>
-        </label>`;
-      row.insertBefore(td, row.firstChild);
+      td.className = 'ppay-td-toggle';
 
-      // Checkbox handler
-      td.querySelector('.ppay-row-checkbox').addEventListener('change', (e) => {
-        // Re-query cells excluding our injected checkbox cell
-        let dataCells = Array.from(row.querySelectorAll('td:not(.ppay-td-checkbox)'));
+      const rowId = `ppay-row-${idx}`;
+      const toggle = document.createElement('span');
+      toggle.className = 'ppay-toggle';
+      toggle.setAttribute('role', 'button');
+      toggle.setAttribute('tabindex', '0');
+      toggle.setAttribute('data-ppay-row', rowId);
+      toggle.setAttribute('title', 'Select for Positive Pay export');
+      toggle.innerHTML = `${PPAY_ICON_SHIELD}${PPAY_ICON_CHECK}<span>PP</span>`;
+      td.appendChild(toggle);
+      row.appendChild(td);
+
+      // Toggle handler
+      toggle.addEventListener('click', (e) => {
+        e.stopPropagation(); // Don't trigger CheckKeeper's row click
+
+        // Re-query cells excluding our injected toggle cell
+        let dataCells = Array.from(row.querySelectorAll('td:not(.ppay-td-toggle)'));
         if (dataCells.length === 0) {
-          dataCells = Array.from(row.children).filter(c => !c.classList.contains('ppay-td-checkbox'));
+          dataCells = Array.from(row.children).filter(c => !c.classList.contains('ppay-td-toggle'));
         }
 
-        if (e.target.checked) {
+        if (toggle.classList.contains('ppay-selected')) {
+          // Deselect
+          toggle.classList.remove('ppay-selected');
+          row.classList.remove('ppay-row-selected');
+          state.selectedChecks.delete(rowId);
+        } else {
+          // Select
+          toggle.classList.add('ppay-selected');
           row.classList.add('ppay-row-selected');
           state.selectedChecks.set(rowId, {
             checkNumber: cols.checkNumber >= 0 ? dataCells[cols.checkNumber]?.textContent.trim() : '',
@@ -788,9 +821,6 @@
             amount: cols.amount >= 0 ? dataCells[cols.amount]?.textContent.trim() : '',
             date: cols.date >= 0 ? dataCells[cols.date]?.textContent.trim() : '',
           });
-        } else {
-          row.classList.remove('ppay-row-selected');
-          state.selectedChecks.delete(rowId);
         }
         updateFloatingButton();
       });

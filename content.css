@@ -1,79 +1,104 @@
 /* ─── PositivePay for CheckKeeper — Injected Styles ─── */
 
-/* ═══ Checkbox ═══ */
-.ppay-checkbox-wrap {
+/* ═══ Per-Row Toggle Pill ═══ */
+.ppay-toggle {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  position: relative;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1.5px solid rgba(102, 126, 234, 0.3);
+  background: rgba(102, 126, 234, 0.06);
+  color: rgba(102, 126, 234, 0.5);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   cursor: pointer;
-  width: 22px;
-  height: 22px;
+  user-select: none;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+  flex-shrink: 0;
+  vertical-align: middle;
 }
 
-.ppay-checkbox-wrap input.ppay-checkbox,
-.ppay-checkbox-wrap input.ppay-row-checkbox {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.ppay-checkmark {
-  width: 18px;
-  height: 18px;
-  border: 2px solid #4a5568;
-  border-radius: 4px;
-  background: transparent;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-}
-
-.ppay-checkmark::after {
-  content: '';
-  position: absolute;
-  display: none;
-  left: 5px;
-  top: 1px;
-  width: 5px;
-  height: 10px;
-  border: solid #fff;
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg);
-}
-
-.ppay-checkbox-wrap input:checked ~ .ppay-checkmark {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+.ppay-toggle:hover {
   border-color: #667eea;
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+  color: #667eea;
+  background: rgba(102, 126, 234, 0.12);
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.08);
+  transform: scale(1.04);
 }
 
-.ppay-checkbox-wrap input:checked ~ .ppay-checkmark::after {
+.ppay-toggle.ppay-selected {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(102, 126, 234, 0.4);
+}
+
+.ppay-toggle.ppay-selected:hover {
+  box-shadow: 0 3px 14px rgba(102, 126, 234, 0.55);
+  transform: scale(1.04);
+}
+
+.ppay-toggle-icon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+.ppay-toggle-check {
+  display: none;
+}
+
+.ppay-toggle.ppay-selected .ppay-toggle-check {
   display: block;
 }
 
-.ppay-checkbox-wrap:hover .ppay-checkmark {
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.12);
+.ppay-toggle.ppay-selected .ppay-toggle-shield {
+  display: none;
 }
 
-.ppay-th-checkbox,
-.ppay-td-checkbox {
-  width: 42px !important;
-  min-width: 42px !important;
-  max-width: 42px !important;
-  text-align: center !important;
-  padding: 8px 4px !important;
-  vertical-align: middle !important;
+/* ═══ Select All Toggle ═══ */
+.ppay-select-all-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.ppay-toggle.ppay-select-all {
+  font-size: 10px;
+  padding: 3px 8px;
+}
+
+/* ═══ Toggle Cell ═══ */
+.ppay-td-toggle {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  padding: 8px 12px 8px 4px !important;
+  flex-shrink: 0 !important;
+}
+
+.ppay-th-toggle {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  padding: 8px 12px 8px 4px !important;
+  flex-shrink: 0 !important;
 }
 
 /* ═══ Row Selection Highlight ═══ */
 .ppay-row-selected {
-  background: rgba(102, 126, 234, 0.08) !important;
-  border-left: 3px solid #667eea !important;
+  background: rgba(102, 126, 234, 0.06) !important;
+  box-shadow: inset 3px 0 0 #667eea;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
 }
 
-.ppay-row-selected td {
+.ppay-row-selected td,
+.ppay-row-selected > div {
   background: transparent !important;
 }
 
