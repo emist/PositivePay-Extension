@@ -137,9 +137,10 @@ body {
 /* ═══ Detected Ledger Display ═══ */
 .status-ledger {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
+  gap: 4px 6px;
+  padding: 8px 10px;
   margin-top: 2px;
   background: rgba(102, 126, 234, 0.08);
   border: 1px solid rgba(102, 126, 234, 0.15);
@@ -159,11 +160,9 @@ body {
   font-size: 12px;
   font-weight: 600;
   color: #667eea;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
+  width: 100%;
+  order: 1;
+  word-break: break-word;
 }
 
 .status-ledger-account {

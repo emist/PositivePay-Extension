@@ -318,12 +318,10 @@
     const accounts = await loadAccounts();
     const entries = Object.entries(accounts);
 
-    // Try exact match first, then partial
+    // Exact match only (case-insensitive) — no partial matching
+    // Partial matches would incorrectly link "PLLC Trust" to "PLLC"
     const detected = ledgerName.toLowerCase();
-    let match = entries.find(([k]) => k.toLowerCase() === detected);
-    if (!match) {
-      match = entries.find(([k]) => detected.includes(k.toLowerCase()) || k.toLowerCase().includes(detected));
-    }
+    const match = entries.find(([k]) => k.toLowerCase() === detected);
 
     if (match) {
       // Already linked
