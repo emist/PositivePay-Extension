@@ -1036,6 +1036,8 @@
     console.log(`${LOG_PREFIX} 📩 Message received:`, msg.type);
 
     if (msg.type === 'PPAY_GET_STATUS') {
+      // Re-detect ledger fresh (user may have switched ledgers in this SPA)
+      detectLedger();
       const status = {
         onCheckeeper: true,
         selectedCount: state.selectedChecks.size,
