@@ -992,8 +992,9 @@
         continue;
       }
 
-      // CSV format: AccountNumber,CheckNumber,Amount,Date,IssueIndicator,PayeeName
-      lines.push(`${acct},${checkNum},${amount},${date},I,${payee}`);
+      // CSV format: "AccountNumber","CheckNumber","Amount","Date","IssueIndicator","PayeeName"
+      // Fields are double-quoted for Centrix/ExactTMS ParseLineDelimited compatibility
+      lines.push(`"${acct}","${checkNum}","${amount}","${date}","I","${payee}"`);
     }
 
     if (lines.length === 0) {
@@ -1001,9 +1002,9 @@
       return;
     }
 
-    // Create and download CSV
-    const csv = lines.join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    // Create and download CSV (use \r\n for Windows/bank system compatibility)
+    const csv = lines.join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
