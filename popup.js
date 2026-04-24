@@ -28,6 +28,12 @@
 
   let currentTabId = null;
 
+  const LOG_PREFIX = '[PositivePay Popup]';
+
+  // DOM refs for detected ledger display
+  const statusLedger = document.getElementById('status-ledger');
+  const statusLedgerName = document.getElementById('status-ledger-name');
+
   /* ─── Mask account number for display ─── */
   function maskAccount(num) {
     if (!num || num.length <= 4) return num || '';
@@ -36,40 +42,58 @@
 
   /* ─── Check if we're on CheckKeeper ─── */
   async function checkStatus() {
+    console.log(`${LOG_PREFIX} checkStatus() called`);
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab) {
+        console.log(`${LOG_PREFIX} No active tab found`);
         setInactive('No active tab');
         return;
       }
 
       currentTabId = tab.id;
+      console.log(`${LOG_PREFIX} Active tab: id=${tab.id}, url=${tab.url || '(no url access)'}`);
 
       // The content script is only injected on checkeeper.com (via manifest matches).
       // If it responds, we know we're on CheckKeeper. If the message fails,
       // either we're not on CheckKeeper or the page needs a refresh.
       try {
         const response = await chrome.tabs.sendMessage(tab.id, { type: 'PPAY_GET_STATUS' });
+        console.log(`${LOG_PREFIX} Status response:`, response);
 
         if (response && response.onCheckeeper) {
           setActive(response);
         } else {
+          console.log(`${LOG_PREFIX} Content script responded but not on CheckKeeper`);
           setInactive('Navigate to app.checkeeper.com to select checks');
         }
       } catch (err) {
         // Content script not reachable
+        console.log(`${LOG_PREFIX} Content script unreachable:`, err.message);
         setInactive('Navigate to app.checkeeper.com to select checks');
         statusDetail.textContent = 'If already on CheckKeeper, try refreshing the page';
       }
     } catch (err) {
+      console.error(`${LOG_PREFIX} checkStatus error:`, err);
       setInactive('Unable to connect');
     }
   }
 
   /* ─── Set active status ─── */
   async function setActive(status) {
+    console.log(`${LOG_PREFIX} setActive():`, status);
     statusDot.className = 'status-dot active';
     statusText.textContent = 'Connected to CheckKeeper';
+
+    // Show detected ledger if available
+    if (status.detectedLedger) {
+      statusLedger.style.display = 'flex';
+      statusLedgerName.textContent = status.detectedLedger;
+      console.log(`${LOG_PREFIX} Detected ledger: "${status.detectedLedger}"`);
+    } else {
+      statusLedger.style.display = 'none';
+      console.log(`${LOG_PREFIX} No ledger detected from page`);
+    }
 
     if (status.selectedCount > 0) {
       statusDetail.textContent = `${status.selectedCount} check${status.selectedCount > 1 ? 's' : ''} selected`;
@@ -90,9 +114,11 @@
 
   /* ─── Set inactive status ─── */
   function setInactive(msg) {
+    console.log(`${LOG_PREFIX} setInactive(): ${msg}`);
     statusDot.className = 'status-dot inactive';
     statusText.textContent = 'Not Connected';
     statusDetail.textContent = msg;
+    statusLedger.style.display = 'none';
     exportSection.style.display = 'none';
   }
 

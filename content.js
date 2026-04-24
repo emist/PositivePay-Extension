@@ -2,10 +2,11 @@
  * PositivePay for CheckKeeper — Content Script
  * 
  * Injected into CheckKeeper (app.checkeeper.com) to:
- *   1. Detect the check registry table
- *   2. Inject selection checkboxes into each row
- *   3. Provide a floating export button for Positive Pay CSV generation
- *   4. Let user pick which saved account to use when exporting
+ *   1. Detect the active ledger/business name
+ *   2. Detect the check registry table
+ *   3. Inject selection checkboxes into each row
+ *   4. Provide a floating export button for Positive Pay CSV generation
+ *   5. Let user pick which saved account to use when exporting
  */
 
 (function () {
@@ -15,12 +16,15 @@
   const state = {
     selectedChecks: new Map(),   // rowId → { checkNumber, payee, amount, date }
     initialized: false,
+    detectedLedger: null,        // best-guess ledger/business name from the page
+    lastDebugAnalysis: null,     // last debug analysis result for diagnostics
     tableObserver: null,
     bodyObserver: null,
   };
 
   /* ─── Constants ─── */
   const STORAGE_KEY = 'ppay_accounts';   // chrome.storage key for { ledgerName: accountNumber }
+  const LOG_PREFIX = '[PositivePay]';
 
   /* ─── Utility: Parse amount string → "123.45" ─── */
   function parseAmount(raw) {
@@ -72,6 +76,214 @@
     });
   }
 
+  /* ═══════════════════════════════════════════════════════════════
+   *  LEDGER DETECTION & DEBUG ANALYSIS
+   * ═══════════════════════════════════════════════════════════════ */
+
+  /** Normalize a raw ledger name */
+  function normalizeLedgerName(raw) {
+    if (!raw) return '';
+    return raw
+      .replace(/\s+/g, ' ')
+      .replace(/^[\s\-–—]+/, '')
+      .replace(/[\s\-–—]+$/, '')
+      .trim();
+  }
+
+  /** Score a candidate ledger name: higher = more likely real business name */
+  function scoreLedgerCandidate(text) {
+    if (!text || typeof text !== 'string') return 0;
+    const t = text.trim();
+    if (t.length < 2 || t.length > 100) return 0;
+
+    const genericTerms = [
+      'checkeeper', 'dashboard', 'home', 'settings', 'profile', 'help',
+      'logout', 'login', 'sign in', 'sign out', 'menu', 'navigation',
+      'search', 'notifications', 'account', 'back', 'next', 'previous',
+      'page', 'loading', 'welcome', 'check registry', 'registry',
+      'checks', 'print', 'send', 'history', 'reports', 'contacts',
+      'recipients', 'templates', 'billing', 'support', 'upgrade',
+    ];
+    if (genericTerms.includes(t.toLowerCase())) return 0;
+
+    let score = 1;
+    const bizSuffixes = ['llc', 'inc', 'corp', 'ltd', 'co', 'company', 'group', 'associates', 'partners', 'firm', 'enterprises', 'services', 'solutions', 'pllc', 'pa', 'pc'];
+    if (bizSuffixes.some(s => t.toLowerCase().includes(s))) score += 5;
+    const wordCount = t.split(/\s+/).length;
+    if (wordCount >= 2) score += 2;
+    if (wordCount >= 3) score += 1;
+    if (/^[A-Z]/.test(t)) score += 1;
+    if (t === t.toLowerCase()) score -= 1;
+    if (/[\/\\:@]/.test(t)) return 0;
+    if (t.length <= 4 && t === t.toUpperCase()) return 0;
+    return Math.max(0, score);
+  }
+
+  /**
+   * Comprehensive page analysis — dumps everything useful to console.
+   * Returns a structured object for diagnostics.
+   */
+  function debugPageAnalysis() {
+    const analysis = {
+      timestamp: new Date().toISOString(),
+      url: window.location.href,
+      title: document.title,
+      headings: [],
+      navTexts: [],
+      dropdownTexts: [],
+      breadcrumbTexts: [],
+      selectedDropdownValues: [],
+      dataAttributes: [],
+      candidates: [],
+    };
+
+    // 1. All headings
+    document.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(el => {
+      const text = el.textContent.trim();
+      if (text) {
+        analysis.headings.push({
+          tag: el.tagName.toLowerCase(),
+          text,
+          classes: el.className,
+          id: el.id || null,
+        });
+      }
+    });
+
+    // 2. Nav / sidebar text
+    document.querySelectorAll('nav, [role="navigation"], .sidebar, .nav, .sidenav, [class*="sidebar"], [class*="nav-"]').forEach(el => {
+      const text = el.textContent.trim().substring(0, 200);
+      if (text) analysis.navTexts.push(text);
+    });
+
+    // 3. Dropdowns / selects (business switcher likely here)
+    document.querySelectorAll('select, [role="listbox"], [role="combobox"]').forEach(el => {
+      const selected = el.value || el.textContent.trim().substring(0, 100);
+      if (selected) analysis.selectedDropdownValues.push(selected);
+    });
+
+    // 4. Elements that look like a business switcher
+    document.querySelectorAll('[class*="business"], [class*="company"], [class*="org"], [class*="tenant"], [class*="workspace"], [class*="ledger"], [class*="entity"], [class*="switcher"], [class*="brand"], [data-business], [data-company], [data-org], [data-ledger]').forEach(el => {
+      const text = el.textContent.trim().substring(0, 100);
+      if (text) {
+        analysis.dropdownTexts.push({
+          text,
+          tag: el.tagName.toLowerCase(),
+          classes: el.className,
+          id: el.id || null,
+        });
+      }
+      // Check data attributes
+      for (const attr of el.attributes) {
+        if (attr.name.startsWith('data-') && attr.value) {
+          analysis.dataAttributes.push({ attr: attr.name, value: attr.value, element: el.tagName });
+        }
+      }
+    });
+
+    // 5. Breadcrumbs
+    document.querySelectorAll('[class*="breadcrumb"], [aria-label*="breadcrumb"], .breadcrumbs, nav ol').forEach(el => {
+      const text = el.textContent.trim().substring(0, 200);
+      if (text) analysis.breadcrumbTexts.push(text);
+    });
+
+    // 6. Look for prominent text near the top of the page (likely business name)
+    const topElements = document.querySelectorAll('header, [class*="header"], [class*="topbar"], [class*="top-bar"], [class*="appbar"], [class*="toolbar"]');
+    topElements.forEach(el => {
+      // Look for text that isn't in a button/link/input
+      el.querySelectorAll('span, div, p, strong, b').forEach(child => {
+        if (child.closest('button, a, input, select, textarea')) return;
+        const text = child.textContent.trim();
+        if (text && text.length > 2 && text.length < 80) {
+          const normalized = normalizeLedgerName(text);
+          const score = scoreLedgerCandidate(normalized);
+          if (score > 0) {
+            analysis.candidates.push({
+              source: 'header-element',
+              text: normalized,
+              score,
+              tag: child.tagName.toLowerCase(),
+              classes: child.className,
+            });
+          }
+        }
+      });
+    });
+
+    // 7. Score all headings as candidates
+    for (const h of analysis.headings) {
+      const normalized = normalizeLedgerName(h.text);
+      if (!normalized) continue;
+      const score = scoreLedgerCandidate(normalized);
+      if (score > 0) {
+        analysis.candidates.push({ source: h.tag, text: normalized, score });
+      }
+    }
+
+    // 8. Score dropdown/switcher texts
+    for (const d of analysis.dropdownTexts) {
+      const normalized = normalizeLedgerName(d.text);
+      if (!normalized) continue;
+      const score = scoreLedgerCandidate(normalized);
+      if (score > 0) {
+        analysis.candidates.push({ source: `switcher(${d.tag}.${d.classes})`, text: normalized, score: score + 3 }); // +3 bonus for being in a business-related element
+      }
+    }
+
+    // 9. Score selected dropdown values
+    for (const val of analysis.selectedDropdownValues) {
+      const normalized = normalizeLedgerName(val);
+      if (!normalized) continue;
+      const score = scoreLedgerCandidate(normalized);
+      if (score > 0) {
+        analysis.candidates.push({ source: 'select-value', text: normalized, score: score + 2 }); // +2 bonus for being a selected value
+      }
+    }
+
+    // Sort candidates by score descending
+    analysis.candidates.sort((a, b) => b.score - a.score);
+
+    // Log everything
+    console.group(`${LOG_PREFIX} 🔍 Page Analysis`);
+    console.log(`URL: ${analysis.url}`);
+    console.log(`Title: ${analysis.title}`);
+    console.log(`Headings (${analysis.headings.length}):`, analysis.headings);
+    console.log(`Nav texts (${analysis.navTexts.length}):`, analysis.navTexts);
+    console.log(`Dropdowns/switchers (${analysis.dropdownTexts.length}):`, analysis.dropdownTexts);
+    console.log(`Selected values (${analysis.selectedDropdownValues.length}):`, analysis.selectedDropdownValues);
+    console.log(`Breadcrumbs (${analysis.breadcrumbTexts.length}):`, analysis.breadcrumbTexts);
+    console.log(`Data attributes (${analysis.dataAttributes.length}):`, analysis.dataAttributes);
+    console.log('─── Candidates (ranked by score) ───');
+    if (analysis.candidates.length === 0) {
+      console.warn(`${LOG_PREFIX} ⚠ No ledger name candidates found`);
+    } else {
+      analysis.candidates.forEach((c, i) => {
+        console.log(`  #${i + 1} [score=${c.score}] "${c.text}" (source: ${c.source})`);
+      });
+    }
+    console.groupEnd();
+
+    state.lastDebugAnalysis = analysis;
+    return analysis;
+  }
+
+  /**
+   * Detect the current ledger/business name from the page.
+   * Returns the best candidate or null.
+   */
+  function detectLedger() {
+    const analysis = debugPageAnalysis();
+    if (analysis.candidates.length > 0) {
+      const best = analysis.candidates[0];
+      console.log(`${LOG_PREFIX} ✅ Detected ledger: "${best.text}" (score=${best.score}, source=${best.source})`);
+      state.detectedLedger = best.text;
+      return best.text;
+    }
+    console.warn(`${LOG_PREFIX} ⚠ Could not detect ledger name — user will pick manually during export`);
+    state.detectedLedger = null;
+    return null;
+  }
+
   /* ─── Prompt user to pick an account (inline modal) ─── */
   function promptSelectAccount() {
     return new Promise(async (resolve) => {
@@ -114,8 +326,37 @@
 
       if (entries.length === 1) {
         // Only one account — use it automatically
+        console.log(`${LOG_PREFIX} Auto-selecting only account: "${entries[0][0]}"`);
         resolve({ ledger: entries[0][0], accountNumber: entries[0][1] });
         return;
+      }
+
+      // Multiple accounts — try to auto-match by detected ledger
+      if (state.detectedLedger) {
+        const detected = state.detectedLedger.toLowerCase();
+        console.log(`${LOG_PREFIX} Attempting auto-match for detected ledger: "${state.detectedLedger}"`);
+
+        // Exact match (case-insensitive)
+        const exactMatch = entries.find(([ledger]) => ledger.toLowerCase() === detected);
+        if (exactMatch) {
+          console.log(`${LOG_PREFIX} ✅ Exact match found: "${exactMatch[0]}"`);
+          resolve({ ledger: exactMatch[0], accountNumber: exactMatch[1] });
+          return;
+        }
+
+        // Partial match (detected contains saved name, or saved name contains detected)
+        const partialMatch = entries.find(([ledger]) =>
+          detected.includes(ledger.toLowerCase()) || ledger.toLowerCase().includes(detected)
+        );
+        if (partialMatch) {
+          console.log(`${LOG_PREFIX} ✅ Partial match found: "${partialMatch[0]}" ↔ "${state.detectedLedger}"`);
+          resolve({ ledger: partialMatch[0], accountNumber: partialMatch[1] });
+          return;
+        }
+
+        console.log(`${LOG_PREFIX} ⚠ No match found for "${state.detectedLedger}" among saved accounts:`, entries.map(e => e[0]));
+      } else {
+        console.log(`${LOG_PREFIX} No detected ledger — showing account picker`);
       }
 
       // Multiple accounts — show picker
@@ -446,24 +687,48 @@
 
   /* ─── Initialize: find table and inject UI ─── */
   function initialize() {
-    const table = findRegistryTable();
-    if (!table) return false;
-    if (table.dataset.ppayInitialized) return true;
+    console.log(`${LOG_PREFIX} 🚀 initialize() called — scanning page...`);
 
-    let cols = identifyColumns(table);
-    // If header detection failed for most columns, try auto-detect
-    const detectedCount = Object.values(cols).filter(v => v >= 0).length;
-    if (detectedCount < 2) {
-      const auto = autoDetectColumns(table);
-      if (auto) cols = auto;
+    // Always run ledger detection (even before table is found)
+    detectLedger();
+
+    const table = findRegistryTable();
+    if (!table) {
+      console.log(`${LOG_PREFIX} ⏳ No check registry table found yet`);
+      return false;
+    }
+    if (table.dataset.ppayInitialized) {
+      console.log(`${LOG_PREFIX} ✓ Table already initialized`);
+      return true;
     }
 
-    // Log detected columns for debugging
-    console.log('[PositivePay] Detected columns:', cols);
+    let cols = identifyColumns(table);
+    const detectedCount = Object.values(cols).filter(v => v >= 0).length;
+    console.log(`${LOG_PREFIX} Column detection (headers): ${detectedCount}/4 found`, cols);
+
+    if (detectedCount < 2) {
+      console.log(`${LOG_PREFIX} Falling back to auto-detect by content patterns...`);
+      const auto = autoDetectColumns(table);
+      if (auto) {
+        cols = auto;
+        const autoCount = Object.values(cols).filter(v => v >= 0).length;
+        console.log(`${LOG_PREFIX} Auto-detect found ${autoCount}/4 columns`, cols);
+      }
+    }
 
     if (Object.values(cols).filter(v => v >= 0).length < 2) {
-      console.warn('[PositivePay] Could not identify enough columns in the table');
+      console.warn(`${LOG_PREFIX} ❌ Could not identify enough columns in the table`);
+      console.log(`${LOG_PREFIX} Table HTML sample:`, table.outerHTML.substring(0, 500));
       return false;
+    }
+
+    // Log the table structure for debugging
+    const rows = table.querySelectorAll('tbody tr, tr');
+    console.log(`${LOG_PREFIX} ✅ Table found with ${rows.length} rows`);
+    if (rows.length > 0) {
+      const firstRow = rows[0];
+      const cells = Array.from(firstRow.querySelectorAll('td'));
+      console.log(`${LOG_PREFIX} First row cells:`, cells.map(c => c.textContent.trim()));
     }
 
     injectCheckboxes(table, cols);
@@ -474,22 +739,25 @@
     // Watch for table content changes (pagination, sorting, etc.)
     if (state.tableObserver) state.tableObserver.disconnect();
     state.tableObserver = new MutationObserver(() => {
-      // Re-inject checkboxes if rows changed
       state.selectedChecks.clear();
       updateFloatingButton();
       injectCheckboxes(table, cols);
+      // Re-detect ledger on table changes (might indicate SPA navigation)
+      detectLedger();
     });
     state.tableObserver.observe(table.querySelector('tbody') || table, {
       childList: true,
       subtree: true,
     });
 
-    console.log('[PositivePay] Extension initialized on CheckKeeper registry');
+    console.log(`${LOG_PREFIX} ✅ Extension initialized on CheckKeeper registry (ledger: ${state.detectedLedger || 'unknown'})`);
     return true;
   }
 
   /* ─── Watch for SPA navigation / dynamic rendering ─── */
   function startObserver() {
+    console.log(`${LOG_PREFIX} 🔄 startObserver() — watching for CheckKeeper registry...`);
+
     // Try immediately
     if (initialize()) return;
 
@@ -498,8 +766,16 @@
     const maxAttempts = 60; // ~30 seconds
     const pollInterval = setInterval(() => {
       attempts++;
+      if (attempts % 10 === 0) {
+        console.log(`${LOG_PREFIX} ⏳ Still waiting for registry table... (attempt ${attempts}/${maxAttempts})`);
+      }
       if (initialize() || attempts >= maxAttempts) {
         clearInterval(pollInterval);
+        if (attempts >= maxAttempts && !state.initialized) {
+          console.warn(`${LOG_PREFIX} ⚠ Gave up waiting for registry table after ${maxAttempts * 0.5}s`);
+          // Still run page analysis so debug info is available
+          debugPageAnalysis();
+        }
       }
     }, 500);
 
@@ -517,19 +793,36 @@
 
   /* ─── Listen for messages from popup ─── */
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    console.log(`${LOG_PREFIX} 📩 Message received:`, msg.type);
+
     if (msg.type === 'PPAY_GET_STATUS') {
-      sendResponse({
+      const status = {
         onCheckeeper: true,
         selectedCount: state.selectedChecks.size,
         initialized: state.initialized,
-      });
+        detectedLedger: state.detectedLedger,
+      };
+      console.log(`${LOG_PREFIX} 📤 Sending status:`, status);
+      sendResponse(status);
     } else if (msg.type === 'PPAY_EXPORT') {
       handleExport();
       sendResponse({ ok: true });
+    } else if (msg.type === 'PPAY_DEBUG') {
+      // Run a fresh page analysis and return it
+      const analysis = debugPageAnalysis();
+      sendResponse({
+        analysis,
+        state: {
+          initialized: state.initialized,
+          detectedLedger: state.detectedLedger,
+          selectedCount: state.selectedChecks.size,
+        },
+      });
     }
     return true; // async response
   });
 
   /* ─── Boot ─── */
+  console.log(`${LOG_PREFIX} 🟢 Content script loaded on ${window.location.href}`);
   startObserver();
 })();
