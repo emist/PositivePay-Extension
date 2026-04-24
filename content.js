@@ -658,9 +658,9 @@
       rows = table.querySelectorAll('tr');
     }
     if (rows.length === 0) {
-      // Div-based: treat direct children as rows
-      rows = table.children;
-      console.log(`${LOG_PREFIX} Auto-detecting columns using div-based rows (${rows.length} children)`);
+      // Div-based: use smart row finder (handles nested wrappers)
+      rows = typeof findCheckRows === 'function' ? findCheckRows(table) : Array.from(table.children);
+      console.log(`${LOG_PREFIX} Auto-detecting columns using div-based rows (${rows.length} rows found)`);
     }
     if (rows.length === 0) return null;
 
@@ -718,6 +718,62 @@
   const PPAY_ICON_SHIELD = `<svg class="ppay-toggle-icon ppay-toggle-shield" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.5l5.5 2v4.5c0 3.5-2.5 5.5-5.5 7-3-1.5-5.5-3.5-5.5-7V3.5L8 1.5z" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   const PPAY_ICON_CHECK = `<svg class="ppay-toggle-icon ppay-toggle-check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8.5l3 3 5-6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
+  /**
+   * Find actual check row elements in a div-based table.
+   * CheckKeeper nests rows inside wrappers, e.g.:
+   *   DIV.card.registry > DIV (toolbar) + DIV (body) > DIV (check row) ...
+   * This function finds the container whose children look like check rows
+   * (i.e., they contain dollar amounts, check numbers, dates).
+   */
+  function findCheckRows(container) {
+    // First: try direct children
+    const directChildren = Array.from(container.children);
+    const directWithData = directChildren.filter(child => {
+      const text = child.textContent.trim();
+      return /\$[\d,]+\.?\d*/.test(text) && text.length > 10 && text.length < 1000;
+    });
+
+    if (directWithData.length >= 2) {
+      console.log(`${LOG_PREFIX} ✅ Check rows are direct children of table container (${directWithData.length} rows)`);
+      return directWithData;
+    }
+
+    // Second: try each direct child as a wrapper — look for their children
+    for (const child of directChildren) {
+      const grandchildren = Array.from(child.children);
+      const gcWithData = grandchildren.filter(gc => {
+        const text = gc.textContent.trim();
+        return /\$[\d,]+\.?\d*/.test(text) && text.length > 10 && text.length < 1000;
+      });
+
+      if (gcWithData.length >= 2) {
+        console.log(`${LOG_PREFIX} ✅ Check rows found in nested wrapper: ${child.tagName}.${child.className.toString().substring(0, 40)} (${gcWithData.length} rows)`);
+        return gcWithData;
+      }
+    }
+
+    // Third: broader recursive search — find any descendant container with 2+ check-data children
+    const allDescendants = container.querySelectorAll('div, section, ul');
+    for (const desc of allDescendants) {
+      const descChildren = Array.from(desc.children);
+      if (descChildren.length < 2) continue;
+
+      const withData = descChildren.filter(c => {
+        const text = c.textContent.trim();
+        return /\$[\d,]+\.?\d*/.test(text) && text.length > 10 && text.length < 1000;
+      });
+
+      if (withData.length >= 2) {
+        console.log(`${LOG_PREFIX} ✅ Check rows found via deep scan: ${desc.tagName}.${desc.className.toString().substring(0, 40)} (${withData.length} rows)`);
+        return withData;
+      }
+    }
+
+    // Fallback: return direct children minus first (original behavior)
+    console.log(`${LOG_PREFIX} ⚠ Could not find check rows — falling back to direct children`);
+    return directChildren.slice(1);
+  }
+
   function injectCheckboxes(table, cols) {
     const isHtmlTable = table.tagName === 'TABLE';
 
@@ -769,7 +825,10 @@
     if (isHtmlTable) {
       rows = table.querySelectorAll('tbody tr, tr:not(:first-child)');
     } else {
-      rows = Array.from(table.children).slice(1);
+      // For div-based: find actual check rows (may be nested deeper)
+      // Look for elements that contain dollar amounts or check numbers
+      rows = findCheckRows(table);
+      console.log(`${LOG_PREFIX} 🔍 Found ${rows.length} check rows for toggle injection`);
     }
 
     Array.from(rows).forEach((row, idx) => {
