@@ -1033,6 +1033,8 @@
       return true;
     }
 
+    // Column detection — used for CSV export, NOT for toggle injection
+    // Toggle pills are injected regardless of column detection success
     let cols = identifyColumns(table);
     const detectedCount = Object.values(cols).filter(v => v >= 0).length;
     console.log(`${LOG_PREFIX} Column detection (headers): ${detectedCount}/4 found`, cols);
@@ -1047,47 +1049,13 @@
       }
     }
 
-    if (Object.values(cols).filter(v => v >= 0).length < 2) {
-      console.warn(`${LOG_PREFIX} ❌ Could not identify enough columns in the table`);
-      console.log(`${LOG_PREFIX} Table HTML sample:`, table.outerHTML.substring(0, 500));
-      return false;
+    const finalCount = Object.values(cols).filter(v => v >= 0).length;
+    if (finalCount < 2) {
+      console.warn(`${LOG_PREFIX} ⚠ Column detection limited (${finalCount}/4) — toggle pills will still inject, but export may need manual mapping`);
     }
 
-    // Comprehensive structure dump for debugging
-    console.log(`${LOG_PREFIX} 📊 TABLE STRUCTURE DUMP:`);
-    console.log(`${LOG_PREFIX}   Tag: ${table.tagName}, Class: "${table.className}"`);
-    console.log(`${LOG_PREFIX}   Direct children: ${table.children.length}`);
-    Array.from(table.children).forEach((child, i) => {
-      const childText = child.textContent.trim().substring(0, 100);
-      const hasAmount = /\$[\d,]+/.test(child.textContent);
-      console.log(`${LOG_PREFIX}   child[${i}]: <${child.tagName}.${child.className.toString().substring(0, 30)}> children=${child.children.length} $=${hasAmount} text="${childText}"`);
-      // Show grandchildren too
-      Array.from(child.children).slice(0, 3).forEach((gc, j) => {
-        const gcText = gc.textContent.trim().substring(0, 80);
-        const gcHas$ = /\$[\d,]+/.test(gc.textContent);
-        console.log(`${LOG_PREFIX}     gc[${i}.${j}]: <${gc.tagName}.${gc.className.toString().substring(0, 30)}> children=${gc.children.length} $=${gcHas$} text="${gcText}"`);
-      });
-    });
-
-    // Log findCheckRows result
-    const isHtmlTable = table.tagName === 'TABLE';
-    if (!isHtmlTable) {
-      const checkRows = findCheckRows(table);
-      console.log(`${LOG_PREFIX}   findCheckRows returned: ${checkRows.length} rows`);
-      checkRows.slice(0, 3).forEach((r, i) => {
-        console.log(`${LOG_PREFIX}     row[${i}]: <${r.tagName}.${r.className.toString().substring(0, 30)}> children=${r.children.length} text="${r.textContent.trim().substring(0, 80)}"`);
-      });
-    }
-
-    // Log the table structure for debugging (standard table)
-    const rows = table.querySelectorAll('tbody tr, tr');
-    console.log(`${LOG_PREFIX} ✅ Table found with ${rows.length} HTML rows`);
-    if (rows.length > 0) {
-      const firstRow = rows[0];
-      const cells = Array.from(firstRow.querySelectorAll('td'));
-      console.log(`${LOG_PREFIX} First row cells:`, cells.map(c => c.textContent.trim()));
-    }
-
+    // Inject toggle pills into every check row — this does NOT require column detection
+    console.log(`${LOG_PREFIX} ✅ Injecting toggle pills into registry...`);
     injectCheckboxes(table, cols);
     createFloatingButton();
     table.dataset.ppayInitialized = 'true';
