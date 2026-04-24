@@ -992,10 +992,9 @@
         continue;
       }
 
-      // CSV format: "AccountNumber","CheckNumber","Amount","Date","IssueIndicator","PayeeName"
-      // Fields are double-quoted for Centrix/ExactTMS ParseLineDelimited compatibility
-      const q = '"';
-      lines.push(q+acct+q+','+q+checkNum+q+','+q+amount+q+','+q+date+q+','+q+'I'+q+','+q+payee+q);
+      // CSV format: AccountNumber,CheckNumber,Amount,Date
+      // Minimal 4-column format matching standard Centrix system mapping
+      lines.push(acct + ',' + checkNum + ',' + amount + ',' + date);
     }
 
     if (lines.length === 0) {
