@@ -32,6 +32,28 @@ function normalizeLedgerName(raw) {
  */
 function extractBusinessName(raw) {
   if (!raw) return '';
+
+  // Step 1: If the text has newlines, split and find the line with the legal suffix
+  const suffixWords = ['pllc', 'llc', 'inc', 'corp', 'ltd', 'co', 'company', 'group',
+    'associates', 'partners', 'firm', 'enterprises', 'services', 'solutions'];
+
+  if (raw.includes('\n')) {
+    const lines = raw.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const bizLine = lines.find(line => {
+      const lower = line.toLowerCase();
+      return suffixWords.some(s => {
+        const idx = lower.indexOf(s);
+        if (idx === -1) return false;
+        const before = idx > 0 ? lower[idx - 1] : ' ';
+        const after = lower[idx + s.length] || ' ';
+        return (/[\s,]/.test(before) || idx === 0) && (/[\s,.]/.test(after) || (idx + s.length) === lower.length);
+      });
+    });
+    if (bizLine) {
+      return normalizeLedgerName(bizLine);
+    }
+  }
+
   const text = normalizeLedgerName(raw);
   if (!text) return '';
 
@@ -275,6 +297,36 @@ describe('extractBusinessName', () => {
     assert.equal(
       extractBusinessName('My Company LLC A Really Long Tagline That Goes On'),
       'My Company LLC'
+    );
+  });
+
+  // ── Newline-aware tests (real CheckKeeper DOM structure) ──
+
+  it('should extract business name from newline-separated text (PLLC Trust)', () => {
+    assert.equal(
+      extractBusinessName('Cornish Hernandez Gonzalez, PLLC Trust\nWe Help the Hurt'),
+      'Cornish Hernandez Gonzalez, PLLC Trust'
+    );
+  });
+
+  it('should extract business name from newline-separated text (PLLC OLD TRUST)', () => {
+    assert.equal(
+      extractBusinessName('Cornish Hernandez Gonzalez, PLLC OLD TRUST\nWe Help the Hurt'),
+      'Cornish Hernandez Gonzalez, PLLC OLD TRUST'
+    );
+  });
+
+  it('should extract business name from newline-separated text (bare PLLC)', () => {
+    assert.equal(
+      extractBusinessName('Cornish Hernandez Gonzalez, PLLC\nWe Help the Hurt'),
+      'Cornish Hernandez Gonzalez, PLLC'
+    );
+  });
+
+  it('should handle multi-line with extra whitespace', () => {
+    assert.equal(
+      extractBusinessName('  Cornish Hernandez Gonzalez, PLLC Trust  \n                We Help the Hurt'),
+      'Cornish Hernandez Gonzalez, PLLC Trust'
     );
   });
 });

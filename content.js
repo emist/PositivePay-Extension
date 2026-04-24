@@ -92,12 +92,36 @@
 
   /**
    * Extract just the business name from text that may include a tagline.
-   * E.g. "Cornish Hernandez Gonzalez, PLLC We Help The Hurt" → "...PLLC"
-   * But keeps qualifiers: "PLLC Trust" → "PLLC Trust" (1-3 words = qualifier)
+   * E.g. "PLLC Trust\nWe Help The Hurt" → "...PLLC Trust"
+   * Handles newlines (separate DOM elements), then word-count qualifier logic.
    * Uses indexOf instead of regex to avoid template-literal escaping issues.
    */
   function extractBusinessName(raw) {
     if (!raw) return '';
+
+    // Step 1: If the text has newlines, split and find the line with the legal suffix
+    const suffixWords = ['pllc', 'llc', 'inc', 'corp', 'ltd', 'co', 'company', 'group',
+      'associates', 'partners', 'firm', 'enterprises', 'services', 'solutions'];
+
+    if (raw.includes('\n')) {
+      const lines = raw.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+      // Find the line containing a legal suffix
+      const bizLine = lines.find(line => {
+        const lower = line.toLowerCase();
+        return suffixWords.some(s => {
+          const idx = lower.indexOf(s);
+          if (idx === -1) return false;
+          const before = idx > 0 ? lower[idx - 1] : ' ';
+          const after = lower[idx + s.length] || ' ';
+          return (/[\s,]/.test(before) || idx === 0) && (/[\s,.]/.test(after) || (idx + s.length) === lower.length);
+        });
+      });
+      if (bizLine) {
+        return normalizeLedgerName(bizLine);
+      }
+      // No suffix line found, fall through to full-text processing
+    }
+
     const text = normalizeLedgerName(raw);
     if (!text) return '';
 
@@ -120,7 +144,6 @@
       while (true) {
         const idx = textLower.indexOf(suffixLower, searchFrom);
         if (idx === -1) break;
-        // Verify whole-word match
         const before = idx > 0 ? text[idx - 1] : ' ';
         const afterChar = text[idx + suffix.length] || ' ';
         const isWordBefore = /[\s,]/.test(before) || idx === 0;
