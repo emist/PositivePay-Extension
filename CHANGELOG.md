@@ -2,6 +2,21 @@
 
 All notable changes to the PositivePay Extension will be documented in this file.
 
+## [1.2.0] — 2026-04-24
+
+### Added
+- **Link Account button**: Detected ledger now shows a "Link" button in the popup that auto-fills the ledger name and focuses the account number input for one-click setup
+- **Linked status badge**: When a detected ledger already has a saved account, the popup shows the masked account number and a green "Linked" badge
+- **Newline-aware extraction**: `extractBusinessName()` now splits multi-line DOM text (e.g. business name + tagline on separate lines) and picks the line with the legal suffix
+- **54 unit tests**: Added 4 new tests for newline-separated business name extraction
+
+### Fixed
+- Regex `\b` word boundaries in `extractBusinessName()` were double-escaped in template literals, making suffix matching a no-op — replaced with `indexOf`-based matching
+- Ledger display now refreshes when accounts are added or deleted
+- `detectLedger()` uses full `.active-business` textContent instead of first child element
+
+---
+
 ## [1.1.1] — 2026-04-24
 
 ### Added

@@ -33,6 +33,11 @@
   // DOM refs for detected ledger display
   const statusLedger = document.getElementById('status-ledger');
   const statusLedgerName = document.getElementById('status-ledger-name');
+  const statusLedgerAccount = document.getElementById('status-ledger-account');
+  const linkAccountBtn = document.getElementById('link-account-btn');
+  const linkAccountBtnText = document.getElementById('link-account-btn-text');
+
+  let currentDetectedLedger = null;
 
   /* ─── Mask account number for display ─── */
   function maskAccount(num) {
@@ -87,10 +92,15 @@
 
     // Show detected ledger if available
     if (status.detectedLedger) {
+      currentDetectedLedger = status.detectedLedger;
       statusLedger.style.display = 'flex';
       statusLedgerName.textContent = status.detectedLedger;
       console.log(`${LOG_PREFIX} Detected ledger: "${status.detectedLedger}"`);
+
+      // Check if this ledger already has a linked account
+      await updateLedgerLinkDisplay(status.detectedLedger);
     } else {
+      currentDetectedLedger = null;
       statusLedger.style.display = 'none';
       console.log(`${LOG_PREFIX} No ledger detected from page`);
     }
@@ -214,6 +224,10 @@
         await deleteAccount(ledger);
         renderAccountsList();
         showAccountStatus(`Removed "${ledger}"`, 'saved');
+        // Refresh ledger link status
+        if (currentDetectedLedger) {
+          await updateLedgerLinkDisplay(currentDetectedLedger);
+        }
       });
     });
   }
@@ -258,6 +272,11 @@
     // Refresh list
     renderAccountsList();
 
+    // Update ledger link display if the saved ledger matches the detected one
+    if (currentDetectedLedger) {
+      await updateLedgerLinkDisplay(currentDetectedLedger);
+    }
+
     // Notify content script if we're connected
     if (currentTabId) {
       chrome.tabs.sendMessage(currentTabId, {
@@ -292,6 +311,56 @@
     } catch (err) {
       exportBtnText.textContent = 'Export failed';
     }
+  });
+
+  /* ─── Update the ledger link display in the status section ─── */
+  async function updateLedgerLinkDisplay(ledgerName) {
+    const accounts = await loadAccounts();
+    const entries = Object.entries(accounts);
+
+    // Try exact match first, then partial
+    const detected = ledgerName.toLowerCase();
+    let match = entries.find(([k]) => k.toLowerCase() === detected);
+    if (!match) {
+      match = entries.find(([k]) => detected.includes(k.toLowerCase()) || k.toLowerCase().includes(detected));
+    }
+
+    if (match) {
+      // Already linked
+      statusLedgerAccount.textContent = maskAccount(match[1]);
+      linkAccountBtn.classList.add('linked');
+      linkAccountBtnText.textContent = 'Linked';
+      linkAccountBtn.title = `Account ${maskAccount(match[1])} linked to this ledger. Click to edit.`;
+    } else {
+      // Not linked yet
+      statusLedgerAccount.textContent = '';
+      linkAccountBtn.classList.remove('linked');
+      linkAccountBtnText.textContent = 'Link';
+      linkAccountBtn.title = 'Link an account number to this ledger';
+    }
+  }
+
+  // Link button handler
+  linkAccountBtn.addEventListener('click', async () => {
+    if (!currentDetectedLedger) return;
+
+    // Auto-fill the ledger input with the detected name
+    ledgerInput.value = currentDetectedLedger;
+
+    // Check if already linked — if so, fill the account number too for editing
+    const accounts = await loadAccounts();
+    const existing = accounts[currentDetectedLedger];
+    if (existing) {
+      accountInput.value = existing;
+      showAccountStatus(`Editing account for "${currentDetectedLedger}"`, 'info');
+    } else {
+      accountInput.value = '';
+      showAccountStatus(`Enter account number for "${currentDetectedLedger}"`, 'info');
+    }
+
+    // Focus the account input so user can type immediately
+    accountInput.focus();
+    accountInput.select();
   });
 
   /* ─── Init ─── */
