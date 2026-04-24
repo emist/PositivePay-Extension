@@ -90,6 +90,46 @@
       .trim();
   }
 
+  /**
+   * Extract just the business name from text that may include a tagline.
+   * E.g. "Cornish Hernandez Gonzalez, PLLC We Help The Hurt" → "Cornish Hernandez Gonzalez, PLLC"
+   */
+  function extractBusinessName(raw) {
+    if (!raw) return '';
+    const text = normalizeLedgerName(raw);
+    if (!text) return '';
+
+    const suffixes = [
+      'PLLC', 'P.L.L.C.', 'P.A.', 'P.A',
+      'LLC', 'L.L.C.', 'L.L.C',
+      'Inc.', 'Inc', 'Corp.', 'Corp', 'Ltd.', 'Ltd',
+      'Co.', 'Co',
+      'Company', 'Group', 'Associates', 'Partners', 'Firm',
+      'Enterprises', 'Services', 'Solutions',
+      'P.C.', 'P.C',
+    ];
+
+    let bestEnd = -1;
+    for (const suffix of suffixes) {
+      const pattern = new RegExp(`\\b${suffix.replace(/\./g, '\\.')}\\b\\.?`, 'gi');
+      let m;
+      while ((m = pattern.exec(text)) !== null) {
+        const end = m.index + m[0].length;
+        if (end > bestEnd) bestEnd = end;
+      }
+    }
+
+    if (bestEnd > 0 && bestEnd < text.length) {
+      const afterSuffix = text.substring(bestEnd).trim();
+      if (afterSuffix.length > 0) {
+        const extracted = text.substring(0, bestEnd).trim();
+        if (extracted.length >= 3) return extracted;
+      }
+    }
+
+    return text;
+  }
+
   /** Score a candidate ledger name: higher = more likely real business name */
   function scoreLedgerCandidate(text) {
     if (!text || typeof text !== 'string') return 0;
@@ -273,11 +313,27 @@
    */
   function detectLedger() {
     const analysis = debugPageAnalysis();
+
+    // Special high-priority: .active-business element (CheckKeeper-specific)
+    const activeBiz = document.querySelector('.active-business');
+    if (activeBiz) {
+      // Try first child element (business name may be separate from tagline)
+      const firstChild = activeBiz.querySelector('span, strong, b, div, p, a');
+      const rawText = firstChild ? firstChild.textContent.trim() : activeBiz.textContent.trim();
+      const extracted = extractBusinessName(rawText);
+      if (extracted && scoreLedgerCandidate(extracted) > 0) {
+        console.log(`${LOG_PREFIX} ✅ Detected ledger from .active-business: "${extracted}" (raw: "${rawText}")`);
+        state.detectedLedger = extracted;
+        return extracted;
+      }
+    }
+
     if (analysis.candidates.length > 0) {
       const best = analysis.candidates[0];
-      console.log(`${LOG_PREFIX} ✅ Detected ledger: "${best.text}" (score=${best.score}, source=${best.source})`);
-      state.detectedLedger = best.text;
-      return best.text;
+      const extracted = extractBusinessName(best.text);
+      console.log(`${LOG_PREFIX} ✅ Detected ledger: "${extracted}" (raw: "${best.text}", score=${best.score}, source=${best.source})`);
+      state.detectedLedger = extracted;
+      return extracted;
     }
     console.warn(`${LOG_PREFIX} ⚠ Could not detect ledger name — user will pick manually during export`);
     state.detectedLedger = null;
@@ -406,17 +462,23 @@
 
   /* ─── Find the check registry table ─── */
   function findRegistryTable() {
-    // Strategy 1: Find a table whose headers contain check-related terms
+    // Strategy 1: Find a <table> whose headers contain check-related terms
     const tables = document.querySelectorAll('table');
+    console.log(`${LOG_PREFIX} 🔍 findRegistryTable: Found ${tables.length} <table> elements`);
+
     for (const table of tables) {
       const headers = table.querySelectorAll('th, thead td');
       const headerTexts = Array.from(headers).map(h => h.textContent.toLowerCase().trim());
+      console.log(`${LOG_PREFIX}   Table headers: [${headerTexts.join(', ')}]`);
       const checkKeywords = ['check', 'number', 'payee', 'amount', 'date', 'pay to', 'recipient'];
       const matches = checkKeywords.filter(kw => headerTexts.some(h => h.includes(kw)));
-      if (matches.length >= 2) return table;
+      if (matches.length >= 2) {
+        console.log(`${LOG_PREFIX}   ✅ Matched table by headers: [${matches.join(', ')}]`);
+        return table;
+      }
     }
 
-    // Strategy 2: Look for a table with rows that contain dollar amounts and check numbers
+    // Strategy 2: Look for a <table> with rows containing dollar amounts or check numbers
     for (const table of tables) {
       const rows = table.querySelectorAll('tbody tr, tr');
       if (rows.length < 1) continue;
@@ -424,18 +486,110 @@
       const cells = firstRow.querySelectorAll('td');
       if (cells.length >= 3) {
         const texts = Array.from(cells).map(c => c.textContent.trim());
+        console.log(`${LOG_PREFIX}   Table first-row cells: [${texts.join(', ')}]`);
         const hasAmount = texts.some(t => /\$[\d,]+\.?\d*/.test(t));
         const hasNumber = texts.some(t => /^\d{3,10}$/.test(t));
-        if (hasAmount || hasNumber) return table;
+        if (hasAmount || hasNumber) {
+          console.log(`${LOG_PREFIX}   ✅ Matched table by content: amount=${hasAmount}, number=${hasNumber}`);
+          return table;
+        }
       }
     }
+
+    // Strategy 3: CheckKeeper may use div-based layouts instead of <table>
+    // Look for repeating row-like structures with check data patterns
+    const gridSelectors = [
+      '[class*="registry"]', '[class*="check-list"]', '[class*="check_list"]',
+      '[class*="checks"]', '[class*="ledger"]', '[class*="transaction"]',
+      '[class*="table"]', '[class*="grid"]', '[class*="list-view"]',
+      '[class*="data-table"]', '[class*="row-container"]',
+      '[role="table"]', '[role="grid"]',
+      '.table', '.grid', '.list',
+    ];
+
+    for (const selector of gridSelectors) {
+      const candidates = document.querySelectorAll(selector);
+      for (const container of candidates) {
+        // Skip tiny containers
+        if (container.children.length < 2) continue;
+
+        // Look for child rows that contain check-like data
+        const childTexts = Array.from(container.children).slice(0, 5).map(child => {
+          return child.textContent.trim().substring(0, 200);
+        });
+
+        const hasCheckData = childTexts.some(t =>
+          /\$[\d,]+\.?\d*/.test(t) || // dollar amount
+          /\b\d{3,10}\b/.test(t) ||    // check number
+          /\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/.test(t)  // date
+        );
+
+        if (hasCheckData) {
+          console.log(`${LOG_PREFIX}   ✅ Found div-based table: ${selector} (${container.tagName}.${container.className})`);
+          console.log(`${LOG_PREFIX}   Children: ${container.children.length}, Sample text: "${childTexts[0]?.substring(0, 80)}"`);
+          return container;
+        }
+      }
+    }
+
+    // Strategy 4: Broad scan — any container with 3+ repeating children that have check data
+    const allContainers = document.querySelectorAll('div, section, main, article');
+    let scannedCount = 0;
+    for (const container of allContainers) {
+      // Only check elements with several child elements (likely rows)
+      if (container.children.length < 3 || container.children.length > 200) continue;
+
+      // Check if children have similar structure (like table rows)
+      const firstChild = container.children[0];
+      const secondChild = container.children[1];
+      if (!firstChild || !secondChild) continue;
+
+      // Both children should be the same tag type
+      if (firstChild.tagName !== secondChild.tagName) continue;
+
+      scannedCount++;
+      // Check content patterns in first few children
+      const sampleTexts = Array.from(container.children).slice(0, 5).map(c => c.textContent.trim());
+      const checksFound = sampleTexts.filter(t =>
+        (/\$[\d,]+\.?\d*/.test(t) || /\b\d{4,10}\b/.test(t)) &&
+        t.length > 10 && t.length < 500
+      ).length;
+
+      if (checksFound >= 2) {
+        console.log(`${LOG_PREFIX}   ✅ Found potential table (broad scan): ${container.tagName}.${container.className}`);
+        console.log(`${LOG_PREFIX}   Children: ${container.children.length}, Checks found: ${checksFound}`);
+        return container;
+      }
+    }
+    console.log(`${LOG_PREFIX}   Broad scan checked ${scannedCount} containers, no match`);
+
+    // Log page structure for debugging
+    console.log(`${LOG_PREFIX} 📋 Page structure dump for debugging:`);
+    const bodyChildren = Array.from(document.body.children).slice(0, 20);
+    bodyChildren.forEach((el, i) => {
+      const desc = `${el.tagName}${el.id ? '#' + el.id : ''}.${el.className.toString().substring(0, 50)}`;
+      const childCount = el.children.length;
+      const textSample = el.textContent.trim().substring(0, 80);
+      console.log(`${LOG_PREFIX}   body>[${i}] ${desc} (${childCount} children) "${textSample}"`);
+    });
 
     return null;
   }
 
   /* ─── Identify column indices from table headers ─── */
   function identifyColumns(table) {
-    const headers = table.querySelectorAll('th, thead td');
+    // Try standard table headers first
+    let headers = table.querySelectorAll('th, thead td');
+
+    // For div-based tables, try the first child's children as "headers"
+    if (headers.length === 0) {
+      const firstChild = table.children[0];
+      if (firstChild) {
+        headers = firstChild.children;
+        console.log(`${LOG_PREFIX} Using div-based header detection (first child's ${headers.length} children)`);
+      }
+    }
+
     const cols = { checkNumber: -1, payee: -1, amount: -1, date: -1 };
 
     Array.from(headers).forEach((h, i) => {
@@ -456,15 +610,29 @@
 
   /* ─── Auto-detect columns by content patterns if header detection failed ─── */
   function autoDetectColumns(table) {
-    const rows = table.querySelectorAll('tbody tr');
+    // Try standard table rows first, then div-based rows
+    let rows = table.querySelectorAll('tbody tr');
+    if (rows.length === 0) {
+      rows = table.querySelectorAll('tr');
+    }
+    if (rows.length === 0) {
+      // Div-based: treat direct children as rows
+      rows = table.children;
+      console.log(`${LOG_PREFIX} Auto-detecting columns using div-based rows (${rows.length} children)`);
+    }
     if (rows.length === 0) return null;
 
     const cols = { checkNumber: -1, payee: -1, amount: -1, date: -1 };
-    // Sample first few rows
-    const sampleRows = Array.from(rows).slice(0, Math.min(5, rows.length));
+    // Sample first few rows (skip first which might be header)
+    const sampleRows = Array.from(rows).slice(1, Math.min(6, rows.length));
 
     for (const row of sampleRows) {
-      const cells = Array.from(row.querySelectorAll('td'));
+      // Get cells: try td first, then direct children (for divs)
+      let cells = Array.from(row.querySelectorAll('td'));
+      if (cells.length === 0) {
+        cells = Array.from(row.children);
+      }
+
       cells.forEach((cell, i) => {
         const text = cell.textContent.trim();
         // Check number: pure digits, 3-10 digits
@@ -485,7 +653,11 @@
 
     // Payee: likely the longest text column that isn't date/amount/checkNumber
     const usedCols = new Set([cols.checkNumber, cols.amount, cols.date]);
-    const sampleCells = Array.from(sampleRows[0]?.querySelectorAll('td') || []);
+    const firstDataRow = sampleRows[0];
+    let sampleCells = Array.from(firstDataRow?.querySelectorAll('td') || []);
+    if (sampleCells.length === 0 && firstDataRow) {
+      sampleCells = Array.from(firstDataRow.children);
+    }
     let maxLen = 0;
     sampleCells.forEach((cell, i) => {
       if (!usedCols.has(i) && cell.textContent.trim().length > maxLen) {
@@ -499,17 +671,25 @@
 
   /* ─── Inject checkboxes into table rows ─── */
   function injectCheckboxes(table, cols) {
+    const isHtmlTable = table.tagName === 'TABLE';
+
     // Add checkbox header
-    const thead = table.querySelector('thead tr, tr:first-child');
-    if (thead && !thead.querySelector('.ppay-th-checkbox')) {
-      const th = document.createElement('th');
+    let headerRow;
+    if (isHtmlTable) {
+      headerRow = table.querySelector('thead tr, tr:first-child');
+    } else {
+      headerRow = table.children[0]; // First child = header row for div-based
+    }
+
+    if (headerRow && !headerRow.querySelector('.ppay-th-checkbox')) {
+      const th = document.createElement(isHtmlTable ? 'th' : 'div');
       th.className = 'ppay-th-checkbox';
       th.innerHTML = `
         <label class="ppay-checkbox-wrap ppay-select-all" title="Select all">
           <input type="checkbox" class="ppay-checkbox ppay-checkbox-all" />
           <span class="ppay-checkmark"></span>
         </label>`;
-      thead.insertBefore(th, thead.firstChild);
+      headerRow.insertBefore(th, headerRow.firstChild);
 
       // Select-all handler
       th.querySelector('.ppay-checkbox-all').addEventListener('change', (e) => {
@@ -522,12 +702,25 @@
     }
 
     // Add checkboxes to each data row
-    const rows = table.querySelectorAll('tbody tr, tr:not(:first-child)');
-    rows.forEach((row, idx) => {
-      if (row.querySelector('.ppay-td-checkbox')) return; // Already injected
-      if (row.querySelectorAll('td').length < 3) return;  // Skip empty/header rows
+    let rows;
+    if (isHtmlTable) {
+      rows = table.querySelectorAll('tbody tr, tr:not(:first-child)');
+    } else {
+      // For div-based: all children except the first (header)
+      rows = Array.from(table.children).slice(1);
+    }
 
-      const td = document.createElement('td');
+    Array.from(rows).forEach((row, idx) => {
+      if (row.querySelector('.ppay-td-checkbox')) return; // Already injected
+
+      // Get cells: try td, then direct children
+      let cells = Array.from(row.querySelectorAll('td'));
+      if (cells.length === 0) {
+        cells = Array.from(row.children);
+      }
+      if (cells.length < 2) return; // Skip empty/sparse rows
+
+      const td = document.createElement(isHtmlTable ? 'td' : 'div');
       td.className = 'ppay-td-checkbox';
       const rowId = `ppay-row-${idx}`;
       td.innerHTML = `
@@ -539,14 +732,19 @@
 
       // Checkbox handler
       td.querySelector('.ppay-row-checkbox').addEventListener('change', (e) => {
-        const cells = Array.from(row.querySelectorAll('td:not(.ppay-td-checkbox)'));
+        // Re-query cells excluding our injected checkbox cell
+        let dataCells = Array.from(row.querySelectorAll('td:not(.ppay-td-checkbox)'));
+        if (dataCells.length === 0) {
+          dataCells = Array.from(row.children).filter(c => !c.classList.contains('ppay-td-checkbox'));
+        }
+
         if (e.target.checked) {
           row.classList.add('ppay-row-selected');
           state.selectedChecks.set(rowId, {
-            checkNumber: cols.checkNumber >= 0 ? cells[cols.checkNumber]?.textContent.trim() : '',
-            payee: cols.payee >= 0 ? cells[cols.payee]?.textContent.trim() : '',
-            amount: cols.amount >= 0 ? cells[cols.amount]?.textContent.trim() : '',
-            date: cols.date >= 0 ? cells[cols.date]?.textContent.trim() : '',
+            checkNumber: cols.checkNumber >= 0 ? dataCells[cols.checkNumber]?.textContent.trim() : '',
+            payee: cols.payee >= 0 ? dataCells[cols.payee]?.textContent.trim() : '',
+            amount: cols.amount >= 0 ? dataCells[cols.amount]?.textContent.trim() : '',
+            date: cols.date >= 0 ? dataCells[cols.date]?.textContent.trim() : '',
           });
         } else {
           row.classList.remove('ppay-row-selected');

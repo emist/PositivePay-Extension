@@ -23,6 +23,51 @@ function normalizeLedgerName(raw) {
 }
 
 /**
+ * Extract just the business name from a string that may include a tagline.
+ * E.g. "Cornish Hernandez Gonzalez, PLLC We Help The Hurt" → "Cornish Hernandez Gonzalez, PLLC"
+ * Strategy: If a legal suffix (LLC, PLLC, Inc, etc.) is found, truncate after it.
+ */
+function extractBusinessName(raw) {
+  if (!raw) return '';
+  const text = normalizeLedgerName(raw);
+  if (!text) return '';
+
+  // Legal suffixes to look for (case-insensitive, whole-word match)
+  const suffixes = [
+    'PLLC', 'P.L.L.C.', 'P.A.', 'P.A',
+    'LLC', 'L.L.C.', 'L.L.C',
+    'Inc.', 'Inc', 'Corp.', 'Corp', 'Ltd.', 'Ltd',
+    'Co.', 'Co',
+    'Company', 'Group', 'Associates', 'Partners', 'Firm',
+    'Enterprises', 'Services', 'Solutions',
+    'P.C.', 'P.C',
+  ];
+
+  // Find the LAST (rightmost) suffix occurrence
+  let bestEnd = -1;
+  for (const suffix of suffixes) {
+    // Search case-insensitively for whole-word match
+    const pattern = new RegExp(`\\b${suffix.replace(/\./g, '\\.')}\\b\\.?`, 'gi');
+    let m;
+    while ((m = pattern.exec(text)) !== null) {
+      const end = m.index + m[0].length;
+      if (end > bestEnd) bestEnd = end;
+    }
+  }
+
+  // If we found a suffix and there's content after it, truncate
+  if (bestEnd > 0 && bestEnd < text.length) {
+    const afterSuffix = text.substring(bestEnd).trim();
+    if (afterSuffix.length > 0) {
+      const extracted = text.substring(0, bestEnd).trim();
+      if (extracted.length >= 3) return extracted;
+    }
+  }
+
+  return text;
+}
+
+/**
  * Score a candidate ledger name: higher = more likely to be a real business name.
  * Returns 0 if the candidate is obviously wrong.
  */
@@ -131,6 +176,56 @@ describe('normalizeLedgerName', () => {
 
   it('should handle newlines and tabs', () => {
     assert.equal(normalizeLedgerName('Acme\n  Corp'), 'Acme Corp');
+  });
+});
+
+describe('extractBusinessName', () => {
+  it('should handle null/undefined/empty', () => {
+    assert.equal(extractBusinessName(null), '');
+    assert.equal(extractBusinessName(undefined), '');
+    assert.equal(extractBusinessName(''), '');
+  });
+
+  it('should strip tagline after PLLC', () => {
+    assert.equal(
+      extractBusinessName('Cornish Hernandez Gonzalez, PLLC We Help The Hurt'),
+      'Cornish Hernandez Gonzalez, PLLC'
+    );
+  });
+
+  it('should strip tagline after LLC', () => {
+    assert.equal(
+      extractBusinessName('Smith Consulting LLC Your Trusted Partner'),
+      'Smith Consulting LLC'
+    );
+  });
+
+  it('should strip tagline after Inc', () => {
+    assert.equal(
+      extractBusinessName('Acme Inc. Making Things Happen'),
+      'Acme Inc.'
+    );
+  });
+
+  it('should return full name when no tagline', () => {
+    assert.equal(
+      extractBusinessName('Cornish Hernandez Gonzalez, PLLC'),
+      'Cornish Hernandez Gonzalez, PLLC'
+    );
+  });
+
+  it('should return full name when no legal suffix', () => {
+    assert.equal(
+      extractBusinessName("Joe's Plumbing"),
+      "Joe's Plumbing"
+    );
+  });
+
+  it('should handle multiple words after suffix', () => {
+    assert.equal(
+      extractBusinessName('My Company LLC A Really Long Tagline That Goes On'),
+      'My Company LLC'
+    );
   });
 });
 

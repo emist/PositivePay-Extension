@@ -2,6 +2,18 @@
 
 All notable changes to the PositivePay Extension will be documented in this file.
 
+## [1.1.1] — 2026-04-24
+
+### Added
+- **Tagline stripping**: `extractBusinessName()` removes slogans/taglines that follow legal suffixes (e.g. "Cornish Hernandez Gonzalez, PLLC We Help The Hurt" → "Cornish Hernandez Gonzalez, PLLC")
+- **Div-based table detection**: `findRegistryTable()` now has 4 strategies — standard `<table>`, content-pattern matching, CSS class-based div grid detection, and broad DOM scan
+- **Div-aware column/checkbox injection**: `identifyColumns`, `autoDetectColumns`, and `injectCheckboxes` all handle div-based grid layouts
+- **Page structure dump**: When no table is found, logs full body children with tag names, classes, and child counts for remote debugging
+
+### Fixed
+- Ledger detection prioritizes `.active-business` element (CheckKeeper-specific)
+- Table detection no longer assumes HTML `<table>` elements — CheckKeeper uses div grids
+
 ## [1.1.0] — 2026-04-24
 
 ### Added
@@ -10,7 +22,7 @@ All notable changes to the PositivePay Extension will be documented in this file
 - **Comprehensive debug logging**: All content script and popup operations log to console with `[PositivePay]` prefix for easy filtering
 - **PPAY_DEBUG message**: Popup can request a full page analysis dump from the content script for diagnostics
 - **Active Ledger display**: Popup now shows the detected ledger name when connected to CheckKeeper
-- **22 new unit tests**: `normalizeLedgerName`, `scoreLedgerCandidate`, `buildPageAnalysis`, `matchLedgerToAccount` (39 total tests)
+- **46 unit tests**: `normalizeLedgerName`, `extractBusinessName`, `scoreLedgerCandidate`, `buildPageAnalysis`, `matchLedgerToAccount` + original logic tests
 - New directive: `directives/ledger_detection.md`
 
 ### Fixed
